@@ -77,7 +77,7 @@ Ensure all numeric fields are correctly typed as numbers (not strings).
 """
 
 class GroqExtractor(LLMExtractor):
-    def __init__(self, api_key: str = None, model: str = "llama3-70b-8192"):
+    def __init__(self, api_key: str = None, model: str = "llama-3.3-70b-versatile"):
         # Uses GROQ_API_KEY from environment if not explicitly passed
         self.client = Groq(api_key=api_key or os.environ.get("GROQ_API_KEY"))
         self.model = model
