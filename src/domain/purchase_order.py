@@ -1,5 +1,5 @@
 from typing import List, Optional
-from datetime import date
+from datetime import date as Date
 from pydantic import BaseModel, Field
 
 class GstGrouping(BaseModel):
@@ -22,7 +22,7 @@ class LineItem(BaseModel):
     totalAmount: float
     grnId: Optional[int] = None
     storeId: Optional[int] = None
-    typeOfService: str
+    typeOfService: Optional[str] = None
 
 class ShippingDetails(BaseModel):
     documentNo: Optional[str] = None
@@ -32,13 +32,13 @@ class ShippingDetails(BaseModel):
     lrOrRrNo: Optional[str] = None
     vehicleNo: Optional[str] = None
     eWayBillNo: Optional[str] = None
-    ewayBillDate: Optional[date] = None
+    ewayBillDate: Optional[Date] = None
 
 class PurchaseOrder(BaseModel):
     voucherType: str
     supplierInvoiceNo: Optional[str] = None
-    date: date
-    status: str
+    date: Date | None = None
+    status: Optional[str] = None
     partyLedgerId: int
     purchaseLedgerId: int
     partyAddress: Optional[str] = None

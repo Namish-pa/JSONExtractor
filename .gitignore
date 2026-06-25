@@ -75,3 +75,16 @@ cover/
 # OS
 .DS_Store
 Thumbs.db
+
+# Tests & sample data
+tests/
+*.pdf
+
+# API keys & secrets
+.env
+.env.local
+.env.*.local
+
+# Project-specific
+static/
+pyrightconfig.json
