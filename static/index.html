@@ -64,6 +64,19 @@
             display: none;
             margin-top: 2rem;
         }
+        #copyBtn {
+            background-color: #4a5568;
+            color: white;
+            border: none;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.9rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #copyBtn:hover {
+            background-color: #2d3748;
+        }
         .error {
             color: #e53e3e;
             background-color: #fff5f5;
@@ -99,7 +112,10 @@
         <div id="errorMsg" class="error"></div>
 
         <div id="resultSection" class="result-section">
-            <h3>Extraction Result:</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <h3 style="margin: 0;">Extraction Result:</h3>
+                <button id="copyBtn">Copy JSON</button>
+            </div>
             <pre id="jsonResult"></pre>
         </div>
     </div>
@@ -147,6 +163,24 @@
                 submitBtn.disabled = false;
                 loading.style.display = 'none';
             }
+        });
+
+        const copyBtn = document.getElementById('copyBtn');
+        const jsonResult = document.getElementById('jsonResult');
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(jsonResult.textContent)
+                .then(() => {
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = 'Copied!';
+                    copyBtn.style.backgroundColor = '#48bb78';
+                    setTimeout(() => {
+                        copyBtn.textContent = originalText;
+                        copyBtn.style.backgroundColor = '#4a5568';
+                    }, 2000);
+                })
+                .catch(err => {
+                    alert('Failed to copy JSON: ' + err);
+                });
         });
     </script>
 </body>

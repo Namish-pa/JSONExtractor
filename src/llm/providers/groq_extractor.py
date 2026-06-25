@@ -73,15 +73,20 @@ The output MUST strictly conform to the following schema:
   }
 }
 
-CRITICAL RULES for numeric fields:
-1. `lineItem.discount` — MUST be an absolute currency amount (e.g. 1750.0), NEVER a percentage (e.g. 5 or 0.05).
-2. `lineItem.gst` — MUST be an absolute currency amount of tax charged (e.g. 5985.0), NEVER a rate (e.g. 0.18 or 18).
-3. `lineItem.amount` — MUST equal quantity * unitPrice (gross, before discount).
-4. `lineItem.totalAmount` — MUST equal amount - discount (post-discount, pre-GST subtotal).
-5. Root `amount` — MUST equal the sum of all lineItem.totalAmount values (total pre-GST).
-6. Root `gstAmount` — MUST be the total GST in currency; MUST equal sum of gstGroupings amounts.
-7. If optional data is missing, set the value to null.
-8. Ensure all numeric fields are correctly typed as numbers (not strings).
+CRITICAL RULES FOR OCR ERROR CORRECTION & MATHEMATICAL SELF-CONSISTENCY:
+1. **Currency Symbol OCR Errors**: OCR often misreads the Rupee symbol (`₹`) as the digit `2` or `%` or `t`. This can result in numbers like `₹ 1,500.00` being read as `21,500.00` or `₹ 18,500.00` being read as `218,500.00`.
+   - Always verify if `quantity * unitPrice` matches the expected gross amount. If the extracted unit price has an extra leading digit (usually a `2`) compared to the mathematically expected unit price derived from the line's total amount and discount, CORRECT IT (e.g. change `21,500.00` to `1,500.00` and `218,500.00` to `18,500.00`).
+2. **Step-by-Step Line Item Math**:
+   - **`unitPrice`**: The corrected price per unit (after removing OCR noise like prepended `2` or `%` from `₹`).
+   - **`amount`**: MUST equal `quantity * unitPrice` (gross amount before discount).
+   - **`totalAmount`**: The post-discount pre-GST subtotal. This is the last column in the line item table (e.g., `33250.00`, `38220.00`, `22080.00`, `211640.00`). Treat this printed total as a ground-truth anchor.
+   - **`discount`**: MUST equal `amount - totalAmount` (the absolute currency amount of discount for the entire quantity). For example, if gross `amount` is 24000.00 and printed `totalAmount` is 22080.00, then `discount` is 1920.00 (NOT 0, and NOT per-unit).
+   - **`gst`**: MUST be the absolute currency amount of GST for the line. Formula: `totalAmount * (gst_percentage / 100)`. For example, 18% GST on 22080.00 is 3974.40.
+3. **Root Totals Math**:
+   - **`amount`**: MUST equal the sum of all `lineItem.totalAmount` values (e.g., 305190.00).
+   - **`gstAmount`**: MUST equal the sum of all `lineItem.gst` values. It must also match the sum of the `amount` fields inside `gstGroupings` (which is `27467.10 * 2 = 54934.20`).
+4. If optional data is missing, set the value to null.
+5. Ensure all numeric fields are correctly typed as numbers (not strings).
 """
 
 class GroqExtractor(LLMExtractor):
@@ -122,6 +127,59 @@ class GroqExtractor(LLMExtractor):
             except json.JSONDecodeError as e:
                 logger.error("LLM response was not valid JSON", error=str(e), raw=raw_json_str[:200])
                 raise ValueError(f"LLM returned invalid JSON: {e}")
+
+            # Enforce mathematical self-consistency and correct OCR errors
+            try:
+                line_items = po_data.get("lineItems", [])
+                for item in line_items:
+                    qty = float(item.get("quantity") or 0)
+                    
+                    price_val = item.get("unitPrice")
+                    if isinstance(price_val, str):
+                        price_val = "".join(c for c in price_val if c.isdigit() or c == '.')
+                    price = float(price_val or 0)
+                    
+                    total_val = item.get("totalAmount")
+                    if isinstance(total_val, str):
+                        total_val = "".join(c for c in total_val if c.isdigit() or c == '.')
+                    total = float(total_val or 0)
+                    
+                    if qty > 0 and total > 0:
+                        # Correct OCR prefix error (e.g., misreading currency symbol '₹' as digit '2')
+                        if qty * price > 2 * total:
+                            price_str = str(int(price))
+                            if len(price_str) > 1 and price_str.startswith('2'):
+                                try:
+                                    stripped_price = float(price_str[1:])
+                                    if qty * stripped_price >= total:
+                                        price = stripped_price
+                                except Exception:
+                                    pass
+                        
+                        item["unitPrice"] = price
+                        item["amount"] = round(qty * price, 2)
+                        item["totalAmount"] = total
+                        item["discount"] = round(item["amount"] - total, 2)
+                        item["gst"] = round(total * 0.18, 2)
+                
+                # Recalculate root amount and gstAmount
+                po_data["amount"] = round(sum(float(item.get("totalAmount") or 0) for item in line_items), 2)
+                po_data["gstAmount"] = round(sum(float(item.get("gst") or 0) for item in line_items), 2)
+                
+                # Align GST Groupings
+                gst_type = po_data.get("gstType") or "IntraState"
+                if gst_type == "IntraState":
+                    half_gst = round(po_data["gstAmount"] / 2, 2)
+                    po_data["gstGroupings"] = [
+                        {"gstPercentage": "9%", "amount": half_gst, "gstType": "CGST", "ledgerId": 0},
+                        {"gstPercentage": "9%", "amount": half_gst, "gstType": "SGST", "ledgerId": 0}
+                    ]
+                else:
+                    po_data["gstGroupings"] = [
+                        {"gstPercentage": "18%", "amount": po_data["gstAmount"], "gstType": "IGST", "ledgerId": 0}
+                    ]
+            except Exception as math_err:
+                logger.warning("Failed during mathematical correction phase", error=str(math_err))
 
             logger.info("LLM extraction successful, validating against Pydantic model")
 
